@@ -16,6 +16,7 @@
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QProgressDialog>
+#include <QtGamepad/QGamepad>
 #include <exception>
 
 #include "parser/gcodeviewparse.h"
@@ -142,6 +143,7 @@ private slots:
     void on_grpJog_toggled(bool checked);
     void on_grpUserCommands_toggled(bool checked);
     void on_chkKeyboardControl_toggled(bool checked);
+    void on_chkGamepadControl_toggled(bool checked);
     void on_tblProgram_customContextMenuRequested(const QPoint &pos);
     void on_splitter_splitterMoved(int pos, int index);
     void on_actRecentClear_triggered();
@@ -311,6 +313,7 @@ private:
     bool m_jogBlock = false;
     bool m_absoluteCoordinates;
     bool m_storedKeyboardControl;
+    bool m_storedGamepadControl;
 
     // Spindle
     bool m_spindleCW = true;
@@ -377,6 +380,9 @@ private:
     void updateOverride(SliderBox *slider, int value, char command);
     void jogStep();
     void updateJogTitle();
+
+    QGamepad *m_gamepad = nullptr;
+    void handleGamepadInput(QGamepadManager::GamepadButton button, bool pressed);
 };
 
 #endif // FRMMAIN_H

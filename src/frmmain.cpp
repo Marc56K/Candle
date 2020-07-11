@@ -290,6 +290,7 @@ frmMain::~frmMain()
 {    
     saveSettings();
 
+    delete m_gamepad;
     delete m_senderErrorBox;
     delete ui;
 }
@@ -421,6 +422,7 @@ void frmMain::loadSettings()
     ui->cmdCommandSend->setFixedHeight(ui->cboCommand->height());
 
     m_storedKeyboardControl = set.value("keyboardControl", false).toBool();
+    m_storedGamepadControl = set.value("gamepadControl", false).toBool();
 
     m_settings->setAutoCompletion(set.value("autoCompletion", true).toBool());
     m_settings->setTouchCommand(set.value("touchCommand").toString());
@@ -532,6 +534,7 @@ void frmMain::saveSettings()
     set.setValue("feedPanel", ui->grpOverriding->isChecked());
     set.setValue("jogPanel", ui->grpJog->isChecked());
     set.setValue("keyboardControl", ui->chkKeyboardControl->isChecked());
+    set.setValue("gamepadControl", ui->chkGamepadControl->isChecked());
     set.setValue("autoCompletion", m_settings->autoCompletion());
     set.setValue("units", m_settings->units());
     set.setValue("storedX", m_storedX);
@@ -630,7 +633,7 @@ void frmMain::updateControlsState() {
     ui->widgetSpindle->setEnabled(portOpened);
     ui->widgetJog->setEnabled(portOpened && !m_processingFile);
 //    ui->grpConsole->setEnabled(portOpened);
-    ui->cboCommand->setEnabled(portOpened && (!ui->chkKeyboardControl->isChecked()));
+    ui->cboCommand->setEnabled(portOpened && (!ui->chkKeyboardControl->isChecked()) && (!ui->chkGamepadControl->isChecked()));
     ui->cmdCommandSend->setEnabled(portOpened);
 //    ui->widgetFeed->setEnabled(!m_transferringFile);
 
@@ -670,6 +673,7 @@ void frmMain::updateControlsState() {
                                                      : m_programFileName.mid(m_programFileName.lastIndexOf("/") + 1) + " - " + qApp->applicationDisplayName());
 
     if (!m_processingFile) ui->chkKeyboardControl->setChecked(m_storedKeyboardControl);
+    if (!m_processingFile) ui->chkGamepadControl->setChecked(m_storedGamepadControl);
 
 #ifdef WINDOWS
     if (QSysInfo::windowsVersion() >= QSysInfo::WV_WINDOWS7) {
@@ -1107,7 +1111,7 @@ void frmMain::onSerialPortReadyRead()
 
                     // Restore absolute/relative coordinate system after jog
                     if (ca.command.toUpper() == "$G" && ca.tableIndex == -2) {
-                        if (ui->chkKeyboardControl->isChecked()) m_absoluteCoordinates = response.contains("G90");
+                        if (ui->chkKeyboardControl->isChecked() ||ui->chkGamepadControl->isChecked()) m_absoluteCoordinates = response.contains("G90");
                         else if (response.contains("G90")) sendCommand("G90", -1, m_settings->showUICommands());
                     }
 
@@ -1848,7 +1852,10 @@ void frmMain::on_cmdFileSend_clicked()
     m_processingFile = true;
     m_fileEndSent = false;
     m_storedKeyboardControl = ui->chkKeyboardControl->isChecked();
-    ui->chkKeyboardControl->setChecked(false);
+    ui->chkKeyboardControl->setChecked(false); 
+    
+    m_storedGamepadControl = ui->chkGamepadControl->isChecked();
+    ui->chkGamepadControl->setChecked(false);
 
     if (!ui->chkTestMode->isChecked()) storeOffsets(); // Allready stored on check
     storeParserState();
@@ -2950,11 +2957,134 @@ void frmMain::on_chkKeyboardControl_toggled(bool checked)
     updateControlsState();
 }
 
+void frmMain::on_chkGamepadControl_toggled(bool checked)
+{
+    ui->grpJog->setProperty("overrided", checked);
+    style()->unpolish(ui->grpJog);
+    ui->grpJog->ensurePolished();
+
+    // Store/restore coordinate system
+    if (checked) {
+        sendCommand("$G", -2, m_settings->showUICommands());
+    }
+    else {
+        if (m_absoluteCoordinates) sendCommand("G90", -1, m_settings->showUICommands());
+    }
+
+    if (!m_processingFile) m_storedGamepadControl = checked;
+
+    if (checked)
+    {
+        QGamepadManager* manager = QGamepadManager::instance();
+        QWindow* window = new QWindow();
+        window->setPosition(INT_MAX, INT_MAX);
+        window->show();
+        delete window;
+        QGuiApplication::processEvents();
+        QList<int> gamepads = manager->connectedGamepads();
+        if (!gamepads.isEmpty())
+        {
+            m_gamepad = new QGamepad(*gamepads.begin(), this);
+            connect(m_gamepad, &QGamepad::buttonAChanged, this, [&](bool pressed) {
+                handleGamepadInput(QGamepadManager::GamepadButton::ButtonA, pressed);
+            });
+            connect(m_gamepad, &QGamepad::buttonBChanged, this, [&](bool pressed) {
+                handleGamepadInput(QGamepadManager::GamepadButton::ButtonB, pressed);
+            });
+            connect(m_gamepad, &QGamepad::buttonXChanged, this, [&](bool pressed) {
+                handleGamepadInput(QGamepadManager::GamepadButton::ButtonX, pressed);
+            });
+            connect(m_gamepad, &QGamepad::buttonYChanged, this, [&](bool pressed) {
+                handleGamepadInput(QGamepadManager::GamepadButton::ButtonY, pressed);
+            });
+            connect(m_gamepad, &QGamepad::buttonL1Changed, this, [&](bool pressed) {
+                handleGamepadInput(QGamepadManager::GamepadButton::ButtonL1, pressed);
+            });
+            connect(m_gamepad, &QGamepad::buttonR1Changed, this, [&](bool pressed) {
+                handleGamepadInput(QGamepadManager::GamepadButton::ButtonR1, pressed);
+            });
+            connect(m_gamepad, &QGamepad::buttonSelectChanged, this, [&](bool pressed) {
+                handleGamepadInput(QGamepadManager::GamepadButton::ButtonSelect, pressed);
+            });
+            connect(m_gamepad, &QGamepad::buttonStartChanged, this, [&](bool pressed) {
+                handleGamepadInput(QGamepadManager::GamepadButton::ButtonStart, pressed);
+            });
+            connect(m_gamepad, &QGamepad::buttonLeftChanged, this, [&](bool pressed) {
+                handleGamepadInput(QGamepadManager::GamepadButton::ButtonLeft, pressed);
+            });
+            connect(m_gamepad, &QGamepad::buttonRightChanged, this, [&](bool pressed) {
+                handleGamepadInput(QGamepadManager::GamepadButton::ButtonRight, pressed);
+            });
+            connect(m_gamepad, &QGamepad::buttonUpChanged, this, [&](bool pressed) {
+                handleGamepadInput(QGamepadManager::GamepadButton::ButtonUp, pressed);
+            });
+            connect(m_gamepad, &QGamepad::buttonDownChanged, this, [&](bool pressed) {
+                handleGamepadInput(QGamepadManager::GamepadButton::ButtonDown, pressed);
+            });
+        }
+    }
+    else if (m_gamepad != nullptr)
+    {
+        delete m_gamepad;
+        m_gamepad = nullptr;
+    }
+
+    updateJogTitle();
+    updateControlsState();
+}
+
+void frmMain::handleGamepadInput(QGamepadManager::GamepadButton button, bool pressed)
+{
+    if (!m_processingFile && ui->chkGamepadControl->isChecked())
+    {
+        switch (button) 
+        {
+        case QGamepadManager::GamepadButton::ButtonLeft:
+            if (pressed) emit ui->cmdXMinus->pressed(); else emit ui->cmdXMinus->released();
+            break;
+        case QGamepadManager::GamepadButton::ButtonRight:
+            if (pressed) emit ui->cmdXPlus->pressed(); else emit ui->cmdXPlus->released();
+            break;
+        case QGamepadManager::GamepadButton::ButtonUp:
+            if (pressed) emit ui->cmdYPlus->pressed(); else emit ui->cmdYPlus->released();
+            break;
+        case QGamepadManager::GamepadButton::ButtonDown:
+            if (pressed) emit ui->cmdYMinus->pressed(); else emit ui->cmdYMinus->released();
+            break;
+        case QGamepadManager::GamepadButton::ButtonL1:
+            if (pressed) emit ui->cmdZPlus->pressed(); else emit ui->cmdZPlus->released();
+            break;
+        case QGamepadManager::GamepadButton::ButtonR1:
+            if (pressed) emit ui->cmdZMinus->pressed(); else emit ui->cmdZMinus->released();
+            break;
+        case QGamepadManager::GamepadButton::ButtonSelect:
+            if (!pressed) emit ui->cmdUnlock->click();
+            break;
+        case QGamepadManager::GamepadButton::ButtonStart:
+            if (!pressed) emit ui->cmdSpindle->click();
+            break;
+        case QGamepadManager::GamepadButton::ButtonA:
+            if (!pressed) emit ui->cmdTouch->click();
+            break;
+        case QGamepadManager::GamepadButton::ButtonB:
+            if (!pressed) emit ui->cmdReset->click();
+            break;
+        case QGamepadManager::GamepadButton::ButtonX:
+            if (!pressed) emit ui->cmdUser0->click();
+            break;
+        case QGamepadManager::GamepadButton::ButtonY:
+            if (!pressed) emit ui->cmdUser1->click();
+            break;
+        }
+    }
+}
+
 void frmMain::updateJogTitle()
 {
-    if (ui->grpJog->isChecked() || !ui->chkKeyboardControl->isChecked()) {
+    bool hidControl = ui->chkKeyboardControl->isChecked() || ui->chkGamepadControl->isChecked();
+    if (ui->grpJog->isChecked() || !hidControl) {
         ui->grpJog->setTitle(tr("Jog"));
-    } else if (ui->chkKeyboardControl->isChecked()) {
+    } else if (hidControl) {
         ui->grpJog->setTitle(tr("Jog") + QString(tr(" (%1/%2)"))
                              .arg(ui->cboJogStep->currentText().toDouble() > 0 ? ui->cboJogStep->currentText() : tr("C"))
                              .arg(ui->cboJogFeed->currentText()));
